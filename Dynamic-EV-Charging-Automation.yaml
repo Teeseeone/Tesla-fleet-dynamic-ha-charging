@@ -8,7 +8,7 @@ blueprint:
 
     ### Development version
     v3.1 is still in development. Known reliability issues and the release checklist
-    are documented in the [repository README](https://github.com/Teeseeone/electric-vehicle-ev-dynamic-charging-home-assistant-/blob/main/README.md#v31-review-findings-and-release-requirements).
+    are documented in the [repository README](https://github.com/Teeseeone/Tesla-fleet-dynamic-ha-charging/blob/main/README.md#v31-review-findings-and-release-requirements).
     Clearer labels and help text do not resolve those issues.
 
     ### Choose the right entities
