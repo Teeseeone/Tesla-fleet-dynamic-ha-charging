@@ -12,9 +12,24 @@ It is designed to work especially well with **Tesla Fleet + Tesla Wall Connector
 - **Stable tag:** `v3.0-Tesla-Fleet`
 - **Development build:** v3.1 Tesla Fleet on `main`
 
-v3.1 adds whole-house power sensor failsafe handling. The stable v3.0 tag remains unchanged.
+v3.1 adds whole-house power sensor failsafe handling plus takeover of charging sessions started from the Tesla app or a Tesla schedule. The stable v3.0 tag remains unchanged.
 
 **Release readiness: keep v3.1 in development until the items below are resolved and verified.** The review covers the current `main` code, not a live Home Assistant installation. The behavior described below is the intended development behavior; the known limitations here still apply.
+
+### Current live-test status
+
+Observed in a real charging session on October 9, 2026:
+
+- dynamic current control is active and responding to changing whole-house load
+- local Tesla Wall Connector power/current feedback is being used for measured W/A control
+- Maximum Grid Draw calculations and EV-budget clamping are behaving as intended during normal charging
+- the v3.1 blueprint is loaded and controlling the Tesla charging-current entity
+
+Still worth testing deliberately before a stable v3.1 release:
+
+- a full 120-second whole-house power outage/failsafe sequence
+- immediate takeover of a fresh Tesla-app start with stale cable telemetry
+- Tesla scheduled/timer start takeover
 
 ## v3.1 review findings and release requirements
 
