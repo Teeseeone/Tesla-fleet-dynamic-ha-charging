@@ -53,6 +53,22 @@ switch.turn_off → stop charging
 
 Tesla Fleet commands already wake the vehicle automatically when required.
 
+### External starts from the Tesla app or Tesla schedule
+
+Charging does **not** have to be started by this blueprint.
+
+v3.1 also handles sessions started externally, including:
+
+- pressing **Start Charging** in the Tesla app
+- a Tesla charging schedule/timer starting the session
+- another Tesla-side charging command that changes the target car into a starting/charging state
+
+The blueprint now triggers on target-car charging-state and start/stop-control changes in addition to the one-minute schedule.
+
+If the Tesla charge-cable entity is still stale when the session begins, a **recent target-car charging/start signal** can temporarily identify the target EV for up to 15 minutes. This lets the blueprint take over current control immediately instead of waiting for the slower charge-cable telemetry to refresh.
+
+The normal local **[CHARGER] Vehicle Connected** gate still applies when configured. Once the target-car cable sensor catches up, the normal cable gate is used again.
+
 ### Whole-house power failsafe
 
 v3.1 no longer treats an unavailable or invalid whole-house power sensor as `0 W`.
@@ -352,18 +368,18 @@ Debug logging:              On while testing
 
 ### Stable v3.0 Tesla Fleet
 
-<a href="https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://raw.githubusercontent.com/Teeseeone/electric-vehicle-ev-dynamic-charging-home-assistant-/v3.0-Tesla-Fleet/Dynamic-EV-Charging-Automation.yaml" target="_blank" rel="noreferrer noopener"><img src="https://my.home-assistant.io/badges/blueprint_import.svg" alt="Import Dynamic EV Charging Automation v3.0 Tesla Fleet into Home Assistant" /></a>
+<a href="https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://raw.githubusercontent.com/Teeseeone/Tesla-fleet-dynamic-ha-charging/v3.0-Tesla-Fleet/Dynamic-EV-Charging-Automation.yaml" target="_blank" rel="noreferrer noopener"><img src="https://my.home-assistant.io/badges/blueprint_import.svg" alt="Import Dynamic EV Charging Automation v3.0 Tesla Fleet into Home Assistant" /></a>
 
 Manual URL:
 
 ```text
-https://raw.githubusercontent.com/Teeseeone/electric-vehicle-ev-dynamic-charging-home-assistant-/v3.0-Tesla-Fleet/Dynamic-EV-Charging-Automation.yaml
+https://raw.githubusercontent.com/Teeseeone/Tesla-fleet-dynamic-ha-charging/v3.0-Tesla-Fleet/Dynamic-EV-Charging-Automation.yaml
 ```
 
 GitHub release:
 
 ```text
-https://github.com/Teeseeone/electric-vehicle-ev-dynamic-charging-home-assistant-/releases/tag/v3.0-Tesla-Fleet
+https://github.com/Teeseeone/Tesla-fleet-dynamic-ha-charging/releases/tag/v3.0-Tesla-Fleet
 ```
 
 ### Development v3.1
@@ -371,7 +387,7 @@ https://github.com/Teeseeone/electric-vehicle-ev-dynamic-charging-home-assistant
 Use `main` to test the v3.1 failsafe changes before the next release:
 
 ```text
-https://raw.githubusercontent.com/Teeseeone/electric-vehicle-ev-dynamic-charging-home-assistant-/main/Dynamic-EV-Charging-Automation.yaml
+https://raw.githubusercontent.com/Teeseeone/Tesla-fleet-dynamic-ha-charging/main/Dynamic-EV-Charging-Automation.yaml
 ```
 
 In Home Assistant:
@@ -458,6 +474,10 @@ Before releasing v3.1, verify the existing dynamic-control behavior plus:
 - charging below the failsafe current is never increased by failsafe mode
 - a stopped vehicle is not started while house-power telemetry is invalid
 - normal dynamic control resumes after valid fresh house-power telemetry returns
+- starting charging from the Tesla app is detected and current control is taken over without waiting for slow cable telemetry
+- a Tesla scheduled/timer start is detected the same way
+- stale target-car cable telemetry cannot block an externally-started target Tesla when a recent target-car charging/start signal is available
+- external-start takeover does not bypass the configured local charger vehicle-connected gate
 
 ### Additional release regression scenarios
 
@@ -486,6 +506,9 @@ Before releasing v3.1, verify the existing dynamic-control behavior plus:
 - Failsafe mode never raises a lower charging current
 - Added house-power freshness checks after stability delays and before every ramp-up step
 - Prevented invalid house-power states from being interpreted as 0 W
+- Added immediate handling of charging sessions started from the Tesla app or Tesla charging schedule
+- Added recent target-car charging/start takeover so stale cable telemetry does not leave an externally-started session uncontrolled
+- Added state triggers for the Tesla charging-state sensor and start/stop control
 
 ### v3.0 Tesla Fleet — stable
 
