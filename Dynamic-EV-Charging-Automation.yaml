@@ -869,6 +869,57 @@ action:
               safe_start_amps: >-
                 {{ [starting_amps | float, confirmed_target | float, max_amps | float] | min }}
 
+          # Revalidate the connections, car state and optional location after the delay.
+          # A Tesla app/scheduled start during this wait must not cause another start command.
+          - variables:
+              restart_fresh_charging_state: >-
+                {% if charger_status_sensor_input not in [none, '', 'none']
+                      and states(charger_status_sensor_input) | lower
+                          not in ['unknown', 'unavailable', 'none', ''] %}
+                  {{ states(charger_status_sensor_input) | lower }}
+                {% else %}
+                  {{ states(sensor_charging_entity) | lower }}
+                {% endif %}
+              restart_local_connected_ok: >-
+                {{ charger_vehicle_connected_sensor_input in [none, '', 'none']
+                   or is_state(charger_vehicle_connected_sensor_input, 'on') }}
+              restart_target_cable_ok: >-
+                {{ target_ev_charge_cable_sensor_input in [none, '', 'none']
+                   or is_state(target_ev_charge_cable_sensor_input, 'on') }}
+              restart_location_ok: >-
+                {{ device_tracker_input in [none, '', 'none']
+                   or is_state(device_tracker_input, 'home') }}
+              restart_is_idle: >-
+                {{ restart_fresh_charging_state in [
+                   'stopped', 'no_power', 'ready', 'connected', 'waiting_car',
+                   'negotiating', 'plugged_in', 'waiting', 'waiting_for_authorization'] }}
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >-
+                      {{ not restart_local_connected_ok
+                         or not restart_target_cable_ok
+                         or not restart_location_ok
+                         or not restart_is_idle }}
+                sequence:
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ debug_logging }}"
+                        sequence:
+                          - action: logbook.log
+                            data:
+                              name: Dynamic EV Charging v3.1 - Tesla Fleet
+                              entity_id: !input charging_current
+                              message: >-
+                                HOLD RESTART: gates/state changed during stability delay;
+                                state={{ restart_fresh_charging_state }},
+                                local_connected={{ restart_local_connected_ok }},
+                                target_cable={{ restart_target_cable_ok }},
+                                location_ok={{ restart_location_ok }}.
+                                No charging command sent.
+                  - stop: Charging state or connection gates changed during restart delay
+
           - choose:
               - conditions:
                   - condition: template
