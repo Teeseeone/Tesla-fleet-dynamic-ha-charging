@@ -1,4 +1,4 @@
-# Dynamic EV Charging Automation v3.1 - Tesla Fleet for Home Assistant
+# Dynamic EV Charging Automation v3.2 - Tesla Fleet for Home Assistant
 
 > **Tesla Fleet-focused fork of the original Dynamic EV Charging Automation by [EDV11](https://github.com/EDV11/electric-vehicle-ev-dynamic-charging-home-assistant-).**
 
@@ -10,11 +10,11 @@ It is designed to work especially well with **Tesla Fleet + Tesla Wall Connector
 
 - **Stable release:** v3.0 Tesla Fleet
 - **Stable tag:** `v3.0-Tesla-Fleet`
-- **Development build:** v3.1 Tesla Fleet on `main`
+- **Development build:** v3.2 Tesla Fleet on `main`
 
-v3.1 adds whole-house power sensor failsafe handling plus takeover of charging sessions started from the Tesla app or a Tesla schedule. The stable v3.0 tag remains unchanged.
+v3.2 includes the unreleased v3.1 failsafe and external-start features, plus improved Tibber data handling, restart safety checks, and adaptive ramp-down. v3.1 was not released. The stable v3.0 tag remains unchanged.
 
-**Release readiness: keep v3.1 in development until the items below are resolved and verified.** The review covers the current `main` code, not a live Home Assistant installation. The behavior described below is the intended development behavior; the known limitations here still apply.
+**Release readiness: keep v3.2 in development until the items below are resolved and verified.** The review covers the current `main` code, not a live Home Assistant installation. The behavior described below is the intended development behavior; the known limitations here still apply.
 
 ### Current live-test status
 
@@ -29,34 +29,34 @@ Observed in a real charging session on October 9, 2026:
 - dynamic current control is active and responding to changing whole-house load
 - local Tesla Wall Connector power/current feedback is being used for measured W/A control
 - Maximum Grid Draw calculations and EV-budget clamping are behaving as intended during normal charging
-- the v3.1 blueprint is loaded and controlling the Tesla charging-current entity
+- the v3.1 development blueprint was loaded and controlling the Tesla charging-current entity at the time of this session
 
-Still worth testing deliberately before a stable v3.1 release:
+Still worth testing deliberately before a stable v3.2 release:
 
 - a full 120-second whole-house power outage/failsafe sequence
 - immediate takeover of a fresh Tesla-app start with stale cable telemetry
 - Tesla scheduled/timer start takeover
 
-## v3.1 review findings and release requirements
+## v3.2 review findings and release requirements
 
-### Required before a stable v3.1 release
+### Required before a stable v3.2 release
 
 - [x] **Separate sensor freshness from invalid-state duration (code updated; live-test still needed).** Valid whole-house reports now use `last_reported` to detect frozen telemetry even if values remain identical. Invalid/unknown states use `last_changed` to measure the 120-second grace period independently of attribute updates. Missing entities are handled as invalid. `last_reported` reflects HA state writes, not a guaranteed device heartbeat, so test with Tibber Pulse. See [Home Assistant state timestamps](https://www.home-assistant.io/docs/configuration/state_object/#state-object).
 - [x] **Recheck start gates after the stability delay (code updated; live-test still needed).** Restart now rereads local connected, target-EV cable, location, and charging state before starting. If the session already started externally during that delay, the restart path stops without sending a duplicate start command.
 - [ ] **Finish ramp-down hardening.** The main active-charging ramp-down now recomputes power and gates before every step, responds directly to grid overloads, and stops if current feedback fails. **But** the post-stability and in-ramp reversal paths still use their earlier fixed-target ramp-down loops and need the same treatment. New scheduled runs cannot interrupt active loops in `single` mode. See [Home Assistant automation modes](https://www.home-assistant.io/docs/automation/modes/).
 - [ ] **Validate measurement units, freshness, and plausibility.** Positive charger-power/current values are currently accepted without freshness or unit checks. Normalize supported units to watts and amps, reject stale or implausible measurements, and bound measured watts per amp before using it. For example, treating a `6.9 kW` reading as `6.9 W` can incorrectly produce a maximum-current target. Validate whole-house power units too.
 - [ ] **Validate current settings together and against the control entity.** Reject minimum current above maximum current, respect the number entity's minimum/maximum/step, and ensure the starting request is at least the effective minimum without exceeding the safe target. Currently, minimum=10 A, starting=6 A, and safe target=14 A still produces a 6 A starting request. Stop or hold when no valid request fits the safe budget.
-- [ ] **Add automated regression checks and complete live validation.** Cover the scenarios below and the existing failsafe checklist. Record the tested Home Assistant version, sensor update behavior, charger/vehicle setup, and relevant traces before declaring v3.1 stable.
+- [ ] **Add automated regression checks and complete live validation.** Cover the scenarios below and the existing failsafe checklist. Record the tested Home Assistant version, sensor update behavior, charger/vehicle setup, and relevant traces before declaring v3.2 stable.
 
 ### Additional repository improvements
 
 - Add a clear `LICENSE` file after confirming the upstream project's licensing terms and permission to distribute this fork. The current repository has no license file; the existing License paragraph does not establish a license.
-- Keep stable import links pinned to the stable tag. Once the required fixes pass regression checks, a clearly labelled prerelease can support further testing before a stable v3.1 release.
+- Keep stable import links pinned to the stable tag. Once the required fixes pass regression checks, a clearly labelled prerelease can support further testing before a stable v3.2 release.
 
 
 ---
 
-## Highlights in v3.1
+## Highlights in v3.2
 
 ### Tesla Fleet start/stop support
 
@@ -78,7 +78,7 @@ Tesla Fleet commands already wake the vehicle automatically when required.
 
 Charging does **not** have to be started by this blueprint.
 
-v3.1 also handles sessions started externally, including:
+v3.2 also handles sessions started externally, including:
 
 - pressing **Start Charging** in the Tesla app
 - a Tesla charging schedule/timer starting the session
@@ -92,7 +92,7 @@ The normal local **[CHARGER] Vehicle Connected** gate still applies when configu
 
 ### Whole-house power failsafe
 
-v3.1 no longer treats an unavailable or invalid whole-house power sensor as `0 W`.
+v3.2 no longer treats an unavailable or invalid whole-house power sensor as `0 W`.
 
 Default behavior:
 
@@ -116,13 +116,13 @@ Both values are configurable:
 | Whole-House Power Failsafe Current | 10 A |
 | Whole-House Power Failsafe Timeout | 120 s / 2 min |
 
-The failsafe current is a **cap**, not a target: if charging is already below 10 A, v3.1 does not increase it to 10 A. A stopped vehicle is not started while house-power telemetry is invalid.
+The failsafe current is a **cap**, not a target: if charging is already below 10 A, v3.2 does not increase it to 10 A. A stopped vehicle is not started while house-power telemetry is invalid.
 
 ### Independent ramp-up and ramp-down
 
 Charging current can increase and decrease using different step sizes and delays.
 
-v3.1 re-evaluates charging once per minute while idle. It runs in **single** mode so a scheduled one-minute trigger cannot cancel an active ramp. While ramping up, every increase step waits for the configured delay and then re-reads whole-house power plus charger power/current before deciding whether another increase is still safe.
+v3.2 re-evaluates charging once per minute while idle. It runs in **single** mode so a scheduled one-minute trigger cannot cancel an active ramp. While ramping up, every increase step waits for the configured delay and then re-reads whole-house power plus charger power/current before deciding whether another increase is still safe.
 
 The **Ramp-Up Deadband** is only used to decide whether a *new* upward ramp is worth starting. The configured value is the minimum upward difference required to start a ramp, so with a 1 A deadband an increase from 18 A to 19 A is allowed. Once a ramp has started, it continues toward the latest safe target and may use a smaller final step to land exactly on that target.
 
@@ -140,7 +140,7 @@ Default values:
 
 ### One Maximum Grid Draw limit
 
-v3.1 removes the old separate day/night limits and schedules.
+v3.2 removes the old separate day/night limits and schedules.
 
 You now configure one value:
 
@@ -162,7 +162,7 @@ These are used when measured charger power/current are unavailable.
 
 ### Measured charger power and current
 
-v3.1 can use local charger measurements for more accurate control.
+v3.2 can use local charger measurements for more accurate control.
 
 When both are available:
 
@@ -403,9 +403,9 @@ GitHub release:
 https://github.com/Teeseeone/Tesla-fleet-dynamic-ha-charging/releases/tag/v3.0-Tesla-Fleet
 ```
 
-### Development v3.1
+### Development v3.2
 
-Use `main` to test the v3.1 failsafe changes before the next release:
+Use `main` to test the v3.2 failsafe changes before the next release:
 
 ```text
 https://raw.githubusercontent.com/Teeseeone/Tesla-fleet-dynamic-ha-charging/main/Dynamic-EV-Charging-Automation.yaml
@@ -418,7 +418,7 @@ In Home Assistant:
 3. Paste the URL.
 4. Preview the blueprint.
 5. Import or override the existing blueprint.
-6. Open the automation and verify all v3.1 inputs.
+6. Open the automation and verify all v3.2 inputs.
 
 ---
 
@@ -468,14 +468,14 @@ The location tracker is optional.
 - For shared chargers, configure both **Charger Vehicle Connected Sensor** and **Target EV Charge Cable Sensor**. If either configured gate is not ON, the blueprint sends no EV charging commands.
 - The target-EV cable sensor comes from vehicle telemetry and may update more slowly than local Wall Connector data, so this reduces shared-charger risk but cannot cryptographically identify the vehicle connected to the Wall Connector.
 - Reading these Home Assistant sensor states does not itself send extra Tesla commands; Tesla Fleet commands are only sent when the blueprint changes charging current or start/stop state.
-- If the whole-house power sensor becomes invalid, v3.1 blocks ramp-up immediately. After the configured timeout it caps an active charge session to the configured failsafe current rather than assuming the house is using 0 W.
+- If the whole-house power sensor becomes invalid, v3.2 blocks ramp-up immediately. After the configured timeout it caps an active charge session to the configured failsafe current rather than assuming the house is using 0 W.
 - Keep Debug Logging enabled during initial testing.
 
 ---
 
-## v3.1 failsafe test checklist
+## v3.2 failsafe test checklist
 
-Before releasing v3.1, verify the existing dynamic-control behavior plus:
+Before releasing v3.2, verify the existing dynamic-control behavior plus:
 
 - charging starts successfully
 - starting current is applied correctly
@@ -518,7 +518,15 @@ Before releasing v3.1, verify the existing dynamic-control behavior plus:
 
 ## Version history
 
-### v3.1 Tesla Fleet — development
+### v3.2 Tesla Fleet — development on `main`
+
+- Improved Tibber failsafe timestamps: numeric freshness via `last_reported`, invalid duration via `last_changed`, missing entity handled safely
+- Revalidated vehicle-connected, target-car cable, location and charging state after restart stability delays
+- Updated normal active ramp-down to recalculate from fresh readings before each step and reduce directly on grid overload
+- Bounded the normal ramp-down sequence and stopped repeated set-current commands when entity feedback does not decrease
+- Renamed the development blueprint and Logbook messages to v3.2; v3.1 was not released
+
+### v3.1 Tesla Fleet — unreleased development stage
 
 - Added configurable whole-house power failsafe current (default 10 A)
 - Added configurable whole-house power failsafe timeout (default 120 seconds / 2 minutes)
@@ -530,10 +538,6 @@ Before releasing v3.1, verify the existing dynamic-control behavior plus:
 - Added immediate handling of charging sessions started from the Tesla app or Tesla charging schedule
 - Added recent target-car charging/start takeover so stale cable telemetry does not leave an externally-started session uncontrolled
 - Added state triggers for the Tesla charging-state sensor and start/stop control
-- Improved Tibber failsafe timestamps: numeric freshness via `last_reported`, invalid duration via `last_changed`, missing entity handled safely
-- Revalidated vehicle-connected, target-car cable, location and charging state after restart stability delays
-- Updated normal active ramp-down to recalculate from fresh readings before each step and reduce directly on grid overload
-- Bounded the normal ramp-down sequence and stopped repeated set-current commands when entity feedback does not decrease
 
 ### v3.0 Tesla Fleet — stable
 
