@@ -1280,8 +1280,10 @@ action:
 
           - stop: Restart sequence completed
 
-  # 6. For an active session, reduce toward this run's initial calculated target.
-  # This loop does not refresh house-power readings; see the README review.
+
+  # 6. During active charging, refresh the safe target before each ramp-down step.
+  # A grid overload reduces directly to the fresh safe target; normal reductions
+  # use the configured step and delay. Count is bounded by the maximum 32 A range.
   - choose:
       - conditions:
           - condition: template
@@ -1289,40 +1291,188 @@ action:
               {{ (charging_current_value | float(0)) > (new_target_value | float(0)) }}
         sequence:
           - repeat:
-              while:
-                - condition: template
-                  value_template: >-
-                    {{ (states(charging_current_entity) | float(0)) > (new_target_value | float(0)) }}
+              count: 32
               sequence:
                 - variables:
-                    current_amps_before_step: "{{ states(charging_current_entity) | float(0) }}"
+                    down_current: "{{ states(charging_current_entity) | float(0) }}"
+                    down_house_state: "{{ states(sensor_house_power_entity) }}"
+                    down_house_age_seconds: >-
+                      {% set power_state = states[sensor_house_power_entity] %}
+                      {% if power_state is not none %}
+                        {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_reported, 0)] | max }}
+                      {% else %}
+                        999999
+                      {% endif %}
+                    down_house_usable: >-
+                      {{ is_number(down_house_state)
+                         and (down_house_age_seconds | float(999999))
+                            <= (failsafe_timeout_seconds | float(120)) }}
+                    down_house_watts: "{{ down_house_state | float(0) }}"
+                    down_charger_state: >-
+                      {% if charger_status_sensor_input not in [none, '', 'none']
+                            and states(charger_status_sensor_input) | lower
+                               not in ['unknown', 'unavailable', 'none', ''] %}
+                        {{ states(charger_status_sensor_input) | lower }}
+                      {% else %}
+                        {{ states(sensor_charging_entity) | lower }}
+                      {% endif %}
+                    down_local_connected_ok: >-
+                      {{ charger_vehicle_connected_sensor_input in [none, '', 'none']
+                         or is_state(charger_vehicle_connected_sensor_input, 'on') }}
+                    down_target_cable_ok: >-
+                      {{ target_ev_charge_cable_sensor_input in [none, '', 'none']
+                         or is_state(target_ev_charge_cable_sensor_input, 'on')
+                         or external_target_charge_recent }}
+                    down_location_ok: >-
+                      {{ device_tracker_input in [none, '', 'none']
+                         or is_state(device_tracker_input, 'home') }}
+                    down_measured_watts: >-
+                      {% if charger_power_sensor_input not in [none, '', 'none'] %}
+                        {{ states(charger_power_sensor_input) | float(0) }}
+                      {% else %}
+                        0
+                      {% endif %}
+                    down_measured_amps: >-
+                      {% if charger_current_sensor_input not in [none, '', 'none'] %}
+                        {{ states(charger_current_sensor_input) | float(0) }}
+                      {% else %}
+                        0
+                      {% endif %}
+                    down_watts_per_amp: >-
+                      {% if (down_measured_watts | float(0)) > 0
+                            and (down_measured_amps | float(0)) > 0 %}
+                        {{ (down_measured_watts | float(0)) / (down_measured_amps | float(0)) }}
+                      {% else %}
+                        {{ theoretical_watts_per_amp | float(230) }}
+                      {% endif %}
+                    down_charger_consumption: >-
+                      {% if down_charger_state in ['charging', 'charging_reduced', 'starting'] %}
+                        {% if (down_measured_watts | float(0)) > 0 %}
+                          {{ down_measured_watts | float(0) }}
+                        {% else %}
+                          {{ (down_current | float(0)) * (down_watts_per_amp | float(230)) }}
+                        {% endif %}
+                      {% else %}
+                        0
+                      {% endif %}
+                    down_ev_budget: >-
+                      {% set non_ev_load = [0, (down_house_watts | float(0))
+                                                - (down_charger_consumption | float(0))] | max %}
+                      {{ [0, (active_grid_limit | float(0)) - non_ev_load] | max }}
+                    down_target: >-
+                      {% set raw_amps = (down_ev_budget | float(0))
+                                        / (down_watts_per_amp | float(230)) %}
+                      {% if raw_amps > (max_amps | float) %}
+                        {{ max_amps | float }}
+                      {% elif raw_amps < (min_amps | float) %}
+                        0
+                      {% else %}
+                        {{ raw_amps | int }}
+                      {% endif %}
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: >-
+                            {{ not down_house_usable
+                               or not down_local_connected_ok
+                               or not down_target_cable_ok
+                               or not down_location_ok
+                               or down_charger_state not in ['charging', 'charging_reduced', 'starting'] }}
+                      sequence:
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ debug_logging }}"
+                              sequence:
+                                - action: logbook.log
+                                  data:
+                                    name: Dynamic EV Charging v3.1 - Tesla Fleet
+                                    entity_id: !input charging_current
+                                    message: >-
+                                      HOLD RAMP DOWN: fresh house data, charge state,
+                                      location or vehicle connection changed.
+                                      No further current commands sent.
+                        - stop: Ramp-down safety gate or house-power data changed
+
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ (down_target | float(0)) < (min_amps | float) }}"
+                      sequence:
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ charger_toggle_entity.startswith('switch.') }}"
+                              sequence:
+                                - action: switch.turn_off
+                                  target:
+                                    entity_id: !input charger_toggle
+                          default:
+                            - action: select.select_option
+                              target:
+                                entity_id: !input charger_toggle
+                              data:
+                                option: Stop charging
+                        - stop: Fresh house load is too high for minimum charging current
+
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ (down_target | float(0)) >= (down_current | float(0)) }}"
+                      sequence:
+                        - stop: Fresh current target has recovered; do not over-reduce
+
+                - variables:
+                    down_next_amps: >-
+                      {% if (down_house_watts | float(0)) > (active_grid_limit | float(0)) %}
+                        {{ down_target | float(0) }}
+                      {% else %}
+                        {{ [down_current - (decrease_step_amps | float(1)), down_target | float(0)] | max }}
+                      {% endif %}
                 - action: number.set_value
                   target:
                     entity_id: !input charging_current
                   data:
-                    value: >-
-                      {{ [current_amps_before_step - (decrease_step_amps | float),
-                          new_target_value | float] | max }}
+                    value: "{{ down_next_amps | float }}"
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ debug_logging }}"
+                      sequence:
+                        - action: logbook.log
+                          data:
+                            name: Dynamic EV Charging v3.1 - Tesla Fleet
+                            entity_id: !input charging_current
+                            message: >-
+                              RAMP DOWN STEP: house={{ down_house_watts | round(0) }} W,
+                              current={{ down_current | round(0) }} A,
+                              fresh target={{ down_target | round(0) }} A,
+                              request={{ down_next_amps | round(0) }} A,
+                              direct_overload={{ (down_house_watts | float(0)) > (active_grid_limit | float(0)) }}.
                 - delay:
                     seconds: "{{ decrease_delay_seconds | int }}"
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: >-
+                            {{ (states(charging_current_entity) | float(0))
+                               >= (down_current | float(0)) }}
+                      sequence:
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ debug_logging }}"
+                              sequence:
+                                - action: logbook.log
+                                  data:
+                                    name: Dynamic EV Charging v3.1 - Tesla Fleet
+                                    entity_id: !input charging_current
+                                    message: >-
+                                      HOLD RAMP DOWN: requested {{ down_next_amps | round(0) }} A,
+                                      but current feedback did not decrease after
+                                      {{ decrease_delay_seconds | int }} s.
+                                      Waiting for a future re-evaluation instead of repeating.
+                        - stop: Charging-current feedback did not decrease
 
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ debug_logging }}"
-                sequence:
-                  - action: logbook.log
-                    data:
-                      name: Dynamic EV Charging v3.1 - Tesla Fleet
-                      entity_id: !input charging_current
-                      message: >-
-                        RAMP DOWN: house={{ total_consumption | round(0) }} W,
-                        grid_headroom={{ grid_headroom | round(0) }} W,
-                        charger={{ charger_consumption | round(0) }} W ({{ charger_power_source }}),
-                        W/A={{ watts_per_amp | round(1) }} ({{ watts_per_amp_source }}),
-                        EV_budget={{ actual_free_power | round(0) }} W,
-                        target={{ new_target_value | round(0) }} A.
-          - stop: Ramp-down completed
+          - stop: Ramp-down complete or bounded step limit reached
 
   # 7. Hold if no increase is needed or the increase is below the ramp-start threshold.
   - choose:
