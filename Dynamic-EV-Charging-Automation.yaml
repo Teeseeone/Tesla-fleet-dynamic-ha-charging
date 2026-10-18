@@ -489,16 +489,34 @@ action:
       house_power_state: "{{ states(sensor_house_power_entity) }}"
       house_power_age_seconds: >-
         {% set power_state = states[sensor_house_power_entity] %}
-        {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_updated)] | max }}
+        {% if power_state is not none %}
+          {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_reported, 0)] | max }}
+        {% else %}
+          999999
+        {% endif %}
       house_power_numeric: "{{ is_number(house_power_state) }}"
+      house_power_invalid_age_seconds: >-
+        {% set power_state = states[sensor_house_power_entity] %}
+        {% if power_state is none %}
+          999999
+        {% elif not is_number(power_state.state) %}
+          {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_changed, 0)] | max }}
+        {% else %}
+          0
+        {% endif %}
       house_power_usable: >-
         {{ house_power_numeric
            and (house_power_age_seconds | float(999999))
                <= (failsafe_timeout_seconds | float(120)) }}
       house_power_failsafe_active: >-
         {{ not house_power_usable
-           and (house_power_age_seconds | float(999999))
-               >= (failsafe_timeout_seconds | float(120)) }}
+           and (
+             (house_power_numeric
+              and (house_power_age_seconds | float(999999)) >= (failsafe_timeout_seconds | float(120)))
+             or
+             (not house_power_numeric
+              and (house_power_invalid_age_seconds | float(999999)) >= (failsafe_timeout_seconds | float(120)))
+           ) }}
       total_consumption: >-
         {% if house_power_numeric %}
           {{ house_power_state | float(0) }}
@@ -677,7 +695,7 @@ action:
                         HOLD: charging state '{{ charging_state }}' is not eligible for dynamic control.
           - stop: Charging state is not eligible for dynamic control
 
-  # 3. Check house-power validity and the current timestamp-based freshness test.
+  # 3. Check house-power validity and the sensor report freshness and invalid-state duration.
   # During the timeout, hold the current setting and block all ramp-up/start actions.
   # After the timeout, cap an already-active charging session to the configured failsafe current.
   - choose:
@@ -715,7 +733,7 @@ action:
                               entity_id: !input charging_current
                               message: >-
                                 FAILSAFE ACTIVE: whole-house power state='{{ house_power_state }}',
-                                age={{ house_power_age_seconds | round(0) }} s.
+                                last_report_age={{ house_power_age_seconds | round(0) }} s, invalid_for={{ house_power_invalid_age_seconds | round(0) }} s.
                                 Active charging is capped at
                                 {{ effective_failsafe_current | round(0) }} A;
                                 ramp-up and charging start are blocked until valid power data returns.
@@ -733,7 +751,7 @@ action:
                           entity_id: !input charging_current
                           message: >-
                             FAILSAFE PENDING: whole-house power state='{{ house_power_state }}',
-                            age={{ house_power_age_seconds | round(0) }} s.
+                            last_report_age={{ house_power_age_seconds | round(0) }} s, invalid_for={{ house_power_invalid_age_seconds | round(0) }} s.
                             Holding current and blocking ramp-up/start.
                             Failsafe cap {{ effective_failsafe_current | round(0) }} A
                             applies after {{ failsafe_timeout_seconds | round(0) }} s.
@@ -817,7 +835,11 @@ action:
               confirmed_house_power_state: "{{ states(sensor_house_power_entity) }}"
               confirmed_house_power_age_seconds: >-
                 {% set power_state = states[sensor_house_power_entity] %}
-                {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_updated)] | max }}
+                {% if power_state is not none %}
+                  {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_reported, 0)] | max }}
+                {% else %}
+                  999999
+                {% endif %}
               confirmed_house_power_numeric: "{{ is_number(confirmed_house_power_state) }}"
               confirmed_house_power_usable: >-
                 {{ confirmed_house_power_numeric
@@ -957,7 +979,11 @@ action:
                     step_house_power_state: "{{ states(sensor_house_power_entity) }}"
                     step_house_power_age_seconds: >-
                       {% set power_state = states[sensor_house_power_entity] %}
-                      {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_updated)] | max }}
+                      {% if power_state is not none %}
+                        {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_reported, 0)] | max }}
+                      {% else %}
+                        999999
+                      {% endif %}
                     step_house_power_numeric: "{{ is_number(step_house_power_state) }}"
                     step_house_power_usable: >-
                       {{ step_house_power_numeric
@@ -1279,7 +1305,11 @@ action:
       confirmed_house_power_state: "{{ states(sensor_house_power_entity) }}"
       confirmed_house_power_age_seconds: >-
         {% set power_state = states[sensor_house_power_entity] %}
-        {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_updated)] | max }}
+        {% if power_state is not none %}
+          {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_reported, 0)] | max }}
+        {% else %}
+          999999
+        {% endif %}
       confirmed_house_power_numeric: "{{ is_number(confirmed_house_power_state) }}"
       confirmed_house_power_usable: >-
         {{ confirmed_house_power_numeric
@@ -1447,7 +1477,11 @@ action:
                     step_house_power_state: "{{ states(sensor_house_power_entity) }}"
                     step_house_power_age_seconds: >-
                       {% set power_state = states[sensor_house_power_entity] %}
-                      {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_updated)] | max }}
+                      {% if power_state is not none %}
+                        {{ [0, as_timestamp(now()) - as_timestamp(power_state.last_reported, 0)] | max }}
+                      {% else %}
+                        999999
+                      {% endif %}
                     step_house_power_numeric: "{{ is_number(step_house_power_state) }}"
                     step_house_power_usable: >-
                       {{ step_house_power_numeric
