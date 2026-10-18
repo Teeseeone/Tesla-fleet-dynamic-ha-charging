@@ -18,6 +18,12 @@ v3.1 adds whole-house power sensor failsafe handling plus takeover of charging s
 
 ### Current live-test status
 
+**October 18 code review:** The exported charging history showed frequent 1 A up/down reversals. The charging automation was in use; the user has changed Ramp-Up Deadband from 1 A to **2 A**. This should reduce small upward commands, but effectiveness is not yet measured with a new charge session. Do not infer improved command counts until tested. The three hardening changes below are committed to `main` but have not yet been verified on a live charger:
+
+- `last_reported` for fresh numeric house power; `last_changed` for duration of invalid telemetry
+- restart command gates rechecked after the stability wait
+- main active ramp-down now rereads power/connection state, has a bounded loop, and sends one direct reduction during a grid overload
+
 Observed in a real charging session on October 9, 2026:
 
 - dynamic current control is active and responding to changing whole-house load
@@ -35,9 +41,9 @@ Still worth testing deliberately before a stable v3.1 release:
 
 ### Required before a stable v3.1 release
 
-- [ ] **Separate sensor freshness from invalid-state duration.** The blueprint currently uses `last_updated` for both. Repeated identical valid readings can appear stale because this timestamp changes only when the state or attributes change. Attribute updates during an invalid state can also restart the apparent invalid duration. Use a freshness signal appropriate to the integration and independently track how long telemetry has been invalid. `last_reported` may help when the integration writes every report, but it is not a universal device heartbeat. Handle a missing entity without a template error. See [Home Assistant state timestamps](https://www.home-assistant.io/docs/configuration/state_object/#state-object).
-- [ ] **Recheck all command gates after delays.** The restart path checks connection gates before its stability delay, then checks power before setting current and starting. Recheck local vehicle-connected status, target-EV cable status, eligible charging state, and the optional location restriction immediately before issuing commands. A disconnect or completed session during the delay must prevent a start.
-- [ ] **Refresh the target and gates during ramp-down.** Ramp-down loops retain their original target and do not repeat house-power, failsafe, or connection checks. With default settings, a 20 A to 2 A reduction sequence includes about 90 seconds of delays. New scheduled runs cannot intervene in `single` mode. Recalculate before each reduction, bound loops when command feedback does not progress, and define a faster response for substantial overloads. See [Home Assistant automation modes](https://www.home-assistant.io/docs/automation/modes/).
+- [x] **Separate sensor freshness from invalid-state duration (code updated; live-test still needed).** Valid whole-house reports now use `last_reported` to detect frozen telemetry even if values remain identical. Invalid/unknown states use `last_changed` to measure the 120-second grace period independently of attribute updates. Missing entities are handled as invalid. `last_reported` reflects HA state writes, not a guaranteed device heartbeat, so test with Tibber Pulse. See [Home Assistant state timestamps](https://www.home-assistant.io/docs/configuration/state_object/#state-object).
+- [x] **Recheck start gates after the stability delay (code updated; live-test still needed).** Restart now rereads local connected, target-EV cable, location, and charging state before starting. If the session already started externally during that delay, the restart path stops without sending a duplicate start command.
+- [ ] **Finish ramp-down hardening.** The main active-charging ramp-down now recomputes power and gates before every step, responds directly to grid overloads, and stops if current feedback fails. **But** the post-stability and in-ramp reversal paths still use their earlier fixed-target ramp-down loops and need the same treatment. New scheduled runs cannot interrupt active loops in `single` mode. See [Home Assistant automation modes](https://www.home-assistant.io/docs/automation/modes/).
 - [ ] **Validate measurement units, freshness, and plausibility.** Positive charger-power/current values are currently accepted without freshness or unit checks. Normalize supported units to watts and amps, reject stale or implausible measurements, and bound measured watts per amp before using it. For example, treating a `6.9 kW` reading as `6.9 W` can incorrectly produce a maximum-current target. Validate whole-house power units too.
 - [ ] **Validate current settings together and against the control entity.** Reject minimum current above maximum current, respect the number entity's minimum/maximum/step, and ensure the starting request is at least the effective minimum without exceeding the safe target. Currently, minimum=10 A, starting=6 A, and safe target=14 A still produces a 6 A starting request. Stop or hold when no valid request fits the safe budget.
 - [ ] **Add automated regression checks and complete live validation.** Cover the scenarios below and the existing failsafe checklist. Record the tested Home Assistant version, sensor update behavior, charger/vehicle setup, and relevant traces before declaring v3.1 stable.
@@ -524,6 +530,10 @@ Before releasing v3.1, verify the existing dynamic-control behavior plus:
 - Added immediate handling of charging sessions started from the Tesla app or Tesla charging schedule
 - Added recent target-car charging/start takeover so stale cable telemetry does not leave an externally-started session uncontrolled
 - Added state triggers for the Tesla charging-state sensor and start/stop control
+- Improved Tibber failsafe timestamps: numeric freshness via `last_reported`, invalid duration via `last_changed`, missing entity handled safely
+- Revalidated vehicle-connected, target-car cable, location and charging state after restart stability delays
+- Updated normal active ramp-down to recalculate from fresh readings before each step and reduce directly on grid overload
+- Bounded the normal ramp-down sequence and stopped repeated set-current commands when entity feedback does not decrease
 
 ### v3.0 Tesla Fleet — stable
 
