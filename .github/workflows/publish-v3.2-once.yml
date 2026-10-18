@@ -1,0 +1,59 @@
+name: Publish v3.2 Tesla Fleet release (one time)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-v3.2-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish tagged v3.2 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TARGET: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v3.2-Tesla-Fleet >/dev/null 2>&1; then
+            echo "Release already exists."
+            exit 0
+          fi
+          cat > /tmp/v3.2-release-notes.md <<'EOF'
+          ## Dynamic EV Charging Automation v3.2 - Tesla Fleet
+
+          Personal-use release of the Tesla Fleet dynamic charging Home Assistant blueprint.
+
+          ### Changes since v3.0
+          - Configurable whole-house power failsafe: block current increases on invalid data and limit an ongoing charge after 120 seconds (10 A default).
+          - Tesla app and scheduled-charge takeover, including a short allowance for stale Tesla cable telemetry.
+          - Improved household-power timestamp checks using `last_reported` and separate invalid-state duration using `last_changed`.
+          - Recheck the connection, vehicle status and location gates after restart delays.
+          - Refresh charger and whole-house measurements during the main active ramp-down path.
+          - Faster current reduction on detected grid overload, bounded ramp-down loop, and stop repeated commands when current feedback fails.
+          - Updated blueprint and Logbook naming to v3.2.
+
+          ### Known limitations
+          This is a self-maintained release. The newest v3.2 changes have not yet completed live charging regression tests. Other ramp-down paths, input unit checks and exceptional charging-state handling still have open follow-up work documented in the README. Verify operation carefully before relying on the automation for a grid-limit safety function.
+
+          ### Recommended test settings
+          - Ramp-up deadband: 2 A
+          - Ramp-up stability: 30 seconds
+          - Failsafe current: 10 A
+          - Failsafe timeout: 120 seconds
+
+          ### Install
+          Import `Dynamic-EV-Charging-Automation.yaml` from the `v3.2-Tesla-Fleet` release tag, not the moving development branch.
+          EOF
+          gh release create v3.2-Tesla-Fleet \
+            --target "$RELEASE_TARGET" \
+            --title "Dynamic EV Charging Automation v3.2 - Tesla Fleet" \
+            --notes-file /tmp/v3.2-release-notes.md \
+            --latest
